@@ -1,0 +1,33 @@
+Part 1:
+
+Question: How did you verify that you are parsing the contours directly?
+I did some command line tests calling parse_contour_file and feeding the result into poly_to_mask to verify the
+output looked ok. I checked to see that there were non-zero regions coming back in the output boolean mask using
+np.count_nonzero() to count the number of non-zero elements.
+
+I also plotted some images of both the dicom/boolean masks to ensure it looked like they were being parsed/loaded
+correctly. Two example pairs are in the repo. 
+
+Question: What changes did you make to the code, if any, in order to integrate it into our production code base?
+Answer: The only main change I made was to modify the parse_dicom_file function to return the image directly
+(as a numpy array), instead of a dictionary with one element mapping to the image. 
+
+
+Part 2:
+
+Question: Did you change anything from the pipelines built in Parts 1 to better streamline the pipeline built in Part 2? 
+If so, what? If not, is there anything that you can imagine changing in the future?
+Answer: I initially had designed the parser to simply return the X,Y parsed pairs, but decided to instead
+have them written out as saved numpy files. I think this is more robust, and allows for the parser to be used in isolation
+and invoked once instead of every time the batch generator wants to be used. 
+
+Question: How do you/did you verify that the pipeline was working correctly?
+Answer: Mostly print statements while writing the functions to ensure they were function as expected. 
+There is a quick example of the both the parser and batch generator usage at the bottom of the parse_pipeline.py file.
+
+Question: Given the pipeline you have built, can you see any deficiencies that you would change if you had more time? If not, can you think of any improvements/enhancements to the pipeline that you could build in?
+Answer: The main area of improvement is in the robustness of file finding/matching. Right now, to get things functioning
+as expected, much of the file path construction is hard coded, and relies on relative directory structures that could be
+changed. 
+
+The other main deficiency is lack of real testing. Given more time (or a real project being deployed), I would add real unit tests to test these parser/batch generator functions in isolation to have more confidence they perform well across test cases. 
