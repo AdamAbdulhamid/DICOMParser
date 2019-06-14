@@ -46,6 +46,14 @@ class DICOMParser():
 		"""
 		return self.data_dir + "/contourfiles/" + original_id + "/i-contours"
 
+	def construct_ocontour_dir(self, original_id):
+		"""Construct ocontour directory given the id
+		
+		:param original_id: original_id (e.g. "SC-HF-I-1"
+		:return: the full ocontour directory
+		"""
+		return self.data_dir + "/contourfiles/" + original_id + "/o-contours"
+
 	def construct_dicom_dir(self, patient_id):
 		"""Construct dicom directory given the id
 
@@ -69,6 +77,38 @@ class DICOMParser():
 		:return: the dicom filename (e.g. 123.dcm)
 		"""
 		return str(id) + ".dcm"
+
+	def generate_X_Y(self, contour_dir, patient_id, original_id, is_icontour):
+		"""Given a contour directory (i-contour or o-contour), generate the X,Y training pairs for the
+		dicom/contour files respectively. 
+
+		:param contour_dir: the contour directory we want to generate X,Y data for
+		:return: the X,Y matrices 
+		"""
+		X = []
+		Y = []
+		average_center_density = 0
+		num_centers = 0
+		for contour_file in os.listdir(contour_dir):
+			# Extract the id and construct the "x" and "y" file names (dicom/icontour files respectively)
+			id = self.extract_id(contour_file)
+			x_file = self.construct_dicom_dir(patient_id) + "/" + self.construct_dicom_filename(id)
+			y_file = None
+			if is_icontour:
+				y_file = self.construct_icontour_dir(original_id) + "/" + contour_file
+			else:
+				y_file = self.construct_ocontour_dir(original_id) + "/" + contour_file
+				
+			# If we have a corresponding dicom image for the icontour label we
+			# are looking at, generate a training (x,y) pair		
+			if os.path.isfile(x_file):
+				parsed_contour_file = parse_contour_file(y_file)
+				parsed_dicom_file = parse_dicom_file(x_file)
+				width, height = parsed_dicom_file.shape
+				bool_mask = poly_to_mask(parsed_contour_file, width, height)
+				X.append(parsed_dicom_file)
+				Y.append(bool_mask)
+		return np.asarray(X), np.asarray(Y)
 		
 	def parse_and_save(self):
 		"""Main funtion to be called by users. This parses the dicom/icounter files,
@@ -78,41 +118,35 @@ class DICOMParser():
 		:param id: id (e.g. 123)
 		:return: the dicom filename (e.g. 123.dcm)
 		"""
-		X = []
-		Y = []
+		final_icontour_X = []
+		final_icontour_Y = []
+		final_ocontour_X = []
+		final_ocontour_Y = []
 		
 		# Go through corresponding directories
 		for patient_id, original_id in self.links.items():
-			contour_dir = self.construct_icontour_dir(original_id)
+			icontour_dir = self.construct_icontour_dir(original_id)
+			ocontour_dir = self.construct_ocontour_dir(original_id)
 			
-			# List all contour files in the icontour directory
-			for icontour_file in os.listdir(contour_dir):
-				
-				# Extract the id and construct the "x" and "y" file names (dicom/icontour files respectively)
-				id = self.extract_id(icontour_file)
-				x_file = self.construct_dicom_dir(patient_id) + \
-					"/" + self.construct_dicom_filename(id)
-				y_file = self.construct_icontour_dir(original_id) + \
-					"/" + icontour_file
-				
-				# If we have a corresponding dicom image for the icontour label we
-				# are looking at, generate a training (x,y) pair		
-				if os.path.isfile(x_file):
-					parsed_contour_file = parse_contour_file(y_file)
-					parsed_dicom_file = parse_dicom_file(x_file)
-					width, height = parsed_dicom_file.shape
-					bool_mask = poly_to_mask(parsed_contour_file, width, height)
-					plt.imshow(bool_mask, cmap="gray")
-					plt.show()
-					plt.imshow(parsed_dicom_file, cmap="gray")
-					plt.show()
-					X.append(parsed_dicom_file)
-					Y.append(bool_mask)
+			icontour_X, icontour_Y = self.generate_X_Y(icontour_dir, patient_id, original_id, True)
+			final_icontour_X.append(icontour_X)
+			final_icontour_Y.append(icontour_Y)
+		
+			ocontour_X, ocontour_Y = self.generate_X_Y(ocontour_dir, patient_id, original_id, False)
+			final_ocontour_X.append(ocontour_X)
+			final_ocontour_Y.append(ocontour_Y)
+
+		# Concatenate the individual X,Y pairs for each directory
+		final_icontour_X = np.concatenate(tuple(final_icontour_X), axis=0)
+		final_icontour_Y = np.concatenate(tuple(final_icontour_Y), axis=0)
+		final_ocontour_X = np.concatenate(tuple(final_ocontour_X), axis=0)
+		final_ocontour_Y = np.concatenate(tuple(final_ocontour_Y), axis=0)
+
 		# Save data
-		X = np.asarray(X)
-		Y = np.asarray(Y)
-		np.save("X", X)
-		np.save("Y", Y)
+		np.save("icontour_X", final_icontour_X)
+		np.save("icontour_Y", final_icontour_Y)
+		np.save("ocontour_X", final_ocontour_X)
+		np.save("ocontour_Y", final_ocontour_Y)
 
 class BatchIndexOutOfBoundsException(Exception):
 	"""Custom exception to be raised when the batch generator 
@@ -170,7 +204,6 @@ class BatchGenerator():
 		:return: The X,Y numpy arries with size batch_size
 		"""
 		if self.batch_index < self.num_batches:
-			print(self.batch_index*self.batch_size,(self.batch_index+1)*self.batch_size)
 			X_batch = self.X[self.batch_index*self.batch_size:(self.batch_index+1)*self.batch_size] 
 			Y_batch = self.Y[self.batch_index*self.batch_size:(self.batch_index+1)*self.batch_size]
 			self.batch_index += 1
@@ -185,13 +218,13 @@ if __name__ == "__main__":
 	parser.parse_and_save()
 
 	# Example batch generator usage.
-	batch_generator = BatchGenerator("X.npy", "Y.npy")
+	batch_generator = BatchGenerator("icontour_X.npy", "icontour_Y.npy")
 	num_epochs = 3
 	for i in range(num_epochs):
 		while True:
 			try:
-				X, Y = batch_generator.get_batch()
 				# X, Y used to feed into training pipeline
+				X, Y = batch_generator.get_batch()
 			except BatchIndexOutOfBoundsException:
 				batch_generator.reset_generator()
 				# Computing per epoch metrics (accuracy, loss, etc.) can be done here.

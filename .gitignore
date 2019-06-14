@@ -1,0 +1,6 @@
+*.pyc
+*.gz
+*.npy
+*.swp
+.DS_Store
+final_data

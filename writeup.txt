@@ -25,9 +25,74 @@ Question: How do you/did you verify that the pipeline was working correctly?
 Answer: Mostly print statements while writing the functions to ensure they were function as expected. 
 There is a quick example of the both the parser and batch generator usage at the bottom of the parse_pipeline.py file.
 
-Question: Given the pipeline you have built, can you see any deficiencies that you would change if you had more time? If not, can you think of any improvements/enhancements to the pipeline that you could build in?
+Question: Given the pipeline you have built, can you see any deficiencies that you would change if you had more time? If not,
+can you think of any improvements/enhancements to the pipeline that you could build in?
 Answer: The main area of improvement is in the robustness of file finding/matching. Right now, to get things functioning
 as expected, much of the file path construction is hard coded, and relies on relative directory structures that could be
 changed. 
 
-The other main deficiency is lack of real testing. Given more time (or a real project being deployed), I would add real unit tests to test these parser/batch generator functions in isolation to have more confidence they perform well across test cases. 
+The other main deficiency is lack of real testing. Given more time (or a real project being deployed), I would add real unit
+tests to test these parser/batch generator functions in isolation to have more confidence they perform well across test cases. 
+
+Follow Up Part 1:
+The main change I made to the pipeline was abstracting the X,Y pair generation to work on either icontour or ocontour directories.
+This way, in one pass through the link file, I can generate the X,Y pairs corresponding to both the icontour file and ocontour
+files. The batch generation code remains the same, and still operates on a single X,Y pair.
+
+Follow Up Part 2:
+Question: Let’s assume that you want to create a system to outline the boundary of the blood pool (i-contours), 
+and you already know the outer border of the heart muscle (o-contours). Compare the differences in pixel 
+intensities inside the blood pool (inside the i-contour) to those inside the heart muscle 
+(between the i-contours and o-contours); could you use a simple thresholding scheme to automatically create 
+the i-contours, given the o-contours? Why or why not? Show figures that help justify your answer.
+Answer: I think a simple thresholding scheme is definitely possible, and might work reasonably well. After some
+investigation, it looks like the inside of the blood pool has pixel intensities in the range of about 200-350,
+while the area inside the heart muscle has intensities around 50-150. There is a noticeable and distinct difference
+here, so picking a threshold in between this range seems reasonable. The challenging part here is that the different
+dicom images have different scales of pixel intensities, so pick a threshold that will work well on all images is
+difficult. 
+
+Instead of picking a global threshold, another good approach might be to pick thresholds per image. I.e. something along 
+the lines of start in the center of the image where the density is higher, and look outwards until there is a noticable
+drop in pixel intensity. From there, an image specific density threshold can be selected and used to generate the i-contours.
+
+For some more concrete numbers here, I did a bit of investigation into the densities of the blood pool regions. The average
+density in the center pixel (which will belong to the portion inside the blood pool) across all dicom images is 241.99.
+I didn't have time to do any investigation into the pixel values of the heart muscle region, but from a quick inspection
+it seems to be in the region of 50-150, like I mentioned above. Again, it seems that a simple thresholding algorithm is
+possible given the big difference in pixel densities between the two regions we're interested in. 
+
+There is one image of all 3 correspondong files for one of the instances, which does a good job of showing the difference
+between these regions, and the corresponding pixel density difference. 
+
+Question: Do you think that any other heuristic (non-machine learning)-based approaches, besides simple thresholding, 
+would work in this case? Explain.
+Answer: I think the other heuristic that would work well in addition to the thresholding heuristic is a median
+filter. After thresholding the image, we could go through each pixel and replace each entry with the median of
+the surrounding pixels. The intuition here is that the thersholding technique will be brittle. It's likely that
+there are erroneous pixels inside the blood pool that are dark and will get thresholded incorrectly. It's unlikely
+that we have large groups of these, so if we take the average of neighboring pixel values, we can then threshold
+them again. This is a similar technique used in removing salt and pepper noise from images, and will add the effect
+of some robustness and stability to the simple thresholding algorithm.
+
+Question: What is an appropriate deep learning-based approach to solve this problem?
+Answer: One possible deep learning approach is to use semantic segmentation. We can either invest in finding real
+labeled data (like we have now), or leverage the heursitic based approach to generate training examples. The intution
+is to feed in as input (x, y) pairs the (dicom image, i-contour) images. The simplest architecture would be to have
+several convolutional layers that shrink the spatial dimensions of the dicom image, and then add deconvolution layers
+(also known as transpose convolution layers) to bring the spatial dimensions back up to the same size as our input. 
+
+Our loss function can be a pixelwise log-loss, as our output pixels are binary (part of the icontour or not). This
+can be extended to be a general cross entropy loss over our output distributions per pixel if we want to classify
+over more than two classes (segment over more than 2 options).
+
+Question: What are some advantages and disadvantages of the deep learning approach compared your chosen heuristic method?
+Answer: The deep learning approach will be more robust to small variations in pixel densities, and has the flexibility to generalize.
+The heuristic approach could be brittle, as mentioned above, and deciding a threshold might be very specific to one dataset.
+
+For example, if we choose a threshold and then get a new set of images with a different scale and average pixel densities
+in the regions we're interested in, the threshold algorithm might not work at all. The deep learning approach has a chance to
+generalize to identify higher level constructs like edges and shapes. 
+
+The big disadvantage of the deep learning based approach is the requirement for training data. The heuristic approach can be
+built using no labeled instances, while the deep learning approach will require many.
